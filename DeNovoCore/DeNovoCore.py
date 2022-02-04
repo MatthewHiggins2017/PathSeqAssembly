@@ -8,6 +8,8 @@ import sys
 import random
 from scipy.optimize import minimize
 import urllib.request
+import glob
+import shutil
 
 
 def CreateLoggingFiles(args):
@@ -37,8 +39,8 @@ def Run(Command):
 						capture_output=True)
 
 
-	ErrorLogFile.write(RO.stderr.decode("utf-8")+'\n')
-	ErrorLogFile.flush()
+	StdOutLogFile.write(RO.stderr.decode("utf-8")+'\n')
+	StdOutLogFile.flush()
 
 	StdOutLogFile.write(RO.stdout.decode("utf-8")+'\n')
 	StdOutLogFile.flush()
@@ -141,7 +143,7 @@ def ContamRemoval(args,ReadType='Short'):
 	Run(ContamCommand)
 
 
-
+'''
 def FlyeAssembly(args):
 	"""
 	Long-Read Flye Denovo Assembly
@@ -163,7 +165,7 @@ def FlyeAssembly(args):
 		Run(FlyeC)
 
 	return True
-
+'''
 
 
 
@@ -327,6 +329,7 @@ def RagTag(args):
 							  options={'maxiter':int(args.RTIterations)})
 
 
+
 	# Run Final RagTag optimise with optimal F and Q
 	# parameters
 	RagTagOptimisation(RagTagOptimise.x,
@@ -335,6 +338,8 @@ def RagTag(args):
 				   		args.Prefix,
 				   		args.Threads,
 				   		True)
+
+
 
 
 def RagTagOptimisation(Param,
@@ -686,13 +691,48 @@ def FlyeOptimisation(args):
 							  options={'maxiter':int(args.FlyeIterations)})
 
 
-	# Run Final RagTag optimise with optimal F and Q
-	# parameters
-	FlyeAssembly(FlyeOptAss.x,
-				args.Threads,
-				args.Prefix,
-				args.LongReads,
-				True)
+
+	# Identify best Flye scaffolding
+	MetricDf = pd.DataFrame()
+	for FlyeFile in glob.glob(f'*_{args.Prefix}_Flye'):
+		print(FlyeFile)
+		# Dictionary to store all metric values
+		FFMD = {}
+
+		# Extract Random ID
+		RI = FlyeFile.split('_')[0]
+
+		FFMD['ID']=RI
+
+		# Identify and extract flye assembly metrics
+		TFF = open(f'{FlyeFile}/flye.log','r')
+		for TL in TFF.readlines():
+			for KW in ['Total length:',
+					   'Fragments:',
+					   'Fragments N50:',
+					   'Largest frg:',
+					   'Scaffolds:',
+					   'Mean coverage:']:
+
+				if KW in TL:
+					FFMD[KW.replace(':','')] = int(TL.split(':')[-1].replace(' ',''))
+
+		MetricDf = MetricDf.append(FFMD,ignore_index=True)
+
+
+	# Sort Metrics DF
+	MetricDf = MetricDf.sort_values(by='Total length',ascending=False)
+	MetricDf = MetricDf.reset_index(drop=True)
+	MetricDf.to_csv(f'{args.Prefix}_Flye_Optimisation_Metrics.csv',index=None)
+
+
+	# Extract top Random ID and Rename directory to be Final
+	RIOI = MetricDf.loc[0,'ID']
+	shutil.move(f'{RIOI}_{args.Prefix}_Flye',
+				f'Final_{args.Prefix}_Flye')
+
+
+
 
 
 def FlyeAssembly(OptimisationCombo,
@@ -705,6 +745,8 @@ def FlyeAssembly(OptimisationCombo,
 	"""
 
 	MinOverlap, MetaReview = OptimisationCombo
+
+	MinOverlap = int(MinOverlap)
 
 	if Final == False:
 		RC = random.randint(0, 10**10)
@@ -733,3 +775,22 @@ def FlyeAssembly(OptimisationCombo,
 	FlyeScore = (10**15)-TL
 
 	return FlyeScore
+
+
+
+def RemoveSmallContigs(args):
+
+	# Load in existing working assembly
+	WAD = FastaToDict(args.WorkingAssembly)
+
+	# Complete assessment of working assembly
+	NWA = {}
+	for i,s in WAD.items():
+		if len(s) >= args.MinContigLen:
+			NWA[i]=s
+
+	# Write new assembly
+	Out = open(f'{args.Prefix}_Post_Contig_Filt.fasta','w')
+	for a,b in NWA.items():
+		Out.write(f'>{a}\n{b}\n')
+	Out.close()

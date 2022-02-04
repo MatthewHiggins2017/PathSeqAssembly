@@ -1,3 +1,29 @@
+'''
+Debugging Command
+
+HybridAssembly.py all \
+-P Po221_Run_1 \
+-1 /mnt/storage/matt_h/00_Povale_DB/Fastq/Illumina/Combined_Illumina/Po221_1.final.fastq \
+-2 /mnt/storage/matt_h/00_Povale_DB/Fastq/Illumina/Combined_Illumina/Po221_2.final.fastq \
+-3 /mnt/storage/matt_h/00_Povale_DB/Fastq/Nanopore/Raw_Data/Combined/Po221_minion_combined.fastq \
+-T 30 \
+--FlyeOverlap 1000 \
+--FlyeMeta \
+--RenameJson Po221Renaming.json \
+--SpadesMinCov 5 \
+--MinDepth 26 \
+--MaxDepth 30 \
+--DepthStep 2 \
+--Contam /mnt/storage/matt_h/00_Povale_DB/References/Old_But_Corrected/GRCh38_latest_genomic.fna \
+--GuideRef /mnt/storage/matt_h/00_Povale_DB/References/ChromoOnlyRefs/PocGH01_Genome_and_mito.fasta \
+--CircIDs Po221_MIT:Po221_API \
+--SSPACEBasicPath ~/00_Denovo_Assembly_Tools/sspace_basic/SSPACE_Basic_v2.0.pl \
+--GapFillerPath ~/00_Denovo_Assembly_Tools/GapFiller_v1-11_linux-x86_64/GapFiller.original.pl \
+--Score \
+--RTIterations 3
+
+'''
+
 import os
 import sys
 import argparse
@@ -25,6 +51,7 @@ def get_step_num(args):
 			 '_SSPACE_Depth_File.final.scaffolds.fasta':10,
 			 f'{args.Prefix}_RagTag_Optimisation/' +
 			 'Final_RagTag_Fixed_Gap/ragtag.scaffold.fasta':11,
+			 f'{args.Prefix}_Post_Contig_Filt.fasta':11.5,
 			 f'{args.Prefix}_Renamed.fasta':12,
 			 f'{args.Prefix}_Renamed_Circ.fasta':13,
 			 f'{args.Prefix}_{args.MinDepth}_Extended_'+ \
@@ -94,6 +121,7 @@ def DenovoControl(args):
 		dnc.FlyeOptimisation(args)
 
 	args.WorkingAssembly = f'Final_{args.Prefix}_Flye/assembly.fasta'
+
 
 	# Pilon Polishing
 	Iteration=1
@@ -181,6 +209,14 @@ def DenovoControl(args):
 
 	args.WorkingAssembly = f'{args.Prefix}_RagTag_Optimisation/' + \
 							'Final_RagTag_Fixed_Gap/ragtag.scaffold.fasta'
+
+
+	# Remove small contigs
+	if args.redo or args.step<11.5:
+		dnc.RemoveSmallContigs(args)
+
+
+	args.WorkingAssembly = f'{args.Prefix}_Post_Contig_Filt.fasta'
 
 
 	# Contig Name Conversion [OPTIONAL]
@@ -399,6 +435,11 @@ parser_sub.add_argument('--MisAssemWindow',
 						help='Misassembly Window e.g. 100bp',
 						type=int,
 						default=100)
+
+parser_sub.add_argument('--MinContigLen',
+						help='Minimum contig length to keep post scaffolding',
+						type=int,
+						default=1000)
 
 parser_sub.set_defaults(func=DenovoControl)
 
