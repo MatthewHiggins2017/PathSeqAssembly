@@ -12,11 +12,13 @@ git clone https://github.com/MatthewHiggins2017/PathSeqAssembly.git
 
 
 # Create conda environment.
+
 cd ./PathSeqAssembly
 conda env create --file PSD.yml
 conda activate PSD
 
 # Install package.
+
 python setup.py install
 
 
