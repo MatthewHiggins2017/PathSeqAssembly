@@ -39,8 +39,8 @@ def Run(Command):
 						capture_output=True)
 
 
-	StdOutLogFile.write(RO.stderr.decode("utf-8")+'\n')
-	StdOutLogFile.flush()
+	ErrorLogFile.write(RO.stderr.decode("utf-8")+'\n')
+	ErrorLogFile.flush()
 
 	StdOutLogFile.write(RO.stdout.decode("utf-8")+'\n')
 	StdOutLogFile.flush()
@@ -523,7 +523,7 @@ def CombineFasta(FastaFileList,
 
 def MissassemblyCovCorrection(args):
 
-	ThreadSubset = int(args.Threads/2)
+	ThreadsSubset = int(args.Threads/2)
 
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \
 	samtools sort -@ {ThreadsSubset} -n {args.Prefix}.SpadesPrior.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \

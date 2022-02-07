@@ -1,5 +1,5 @@
 '''
-Debugging Command
+Example Command
 
 HybridAssembly.py all \
 -P Po221_Run_1 \
@@ -262,7 +262,7 @@ def DenovoControl(args):
 
 
 	# Missassembly Correction [OPTIONAL]
-	if 'MisAssembRead1' in vars(args):
+	if args.MisAssembRead1 != 'False':
 		# Coverage based correction
 		if args.redo or args.step<17:
 			dnc.MissassemblyCovCorrection(args)
@@ -420,6 +420,7 @@ parser_sub.add_argument('--Score',
 
 parser_sub.add_argument('--MisAssembRead1',
 						help='First read file for misassembly correction',
+						default='False',
 						type=str)
 
 parser_sub.add_argument('--MisAssembRead2',
