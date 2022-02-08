@@ -523,6 +523,20 @@ def CombineFasta(FastaFileList,
 
 def MissassemblyCovCorrection(args):
 
+
+	# Run Trimming of reads to correct first prior to running
+	# coverage assessment.
+	MissTrim = f'trimmomatic PE -phred33 {args.MisAssembRead1} {args.MisAssembRead2} \
+							 -threads {args.Threads} -baseout {args.Prefix}_MA \
+							 LEADING:3 TRAILING:3 \
+							 SLIDINGWINDOW:4:20 MINLEN:36'
+
+
+	Run(MissTrim)
+
+	args.MisAssembRead1 = f'{args.Prefix}_MA_1P'
+	args.MisAssembRead2 = f'{args.Prefix}_MA_2P'
+
 	ThreadsSubset = int(args.Threads/2)
 
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \

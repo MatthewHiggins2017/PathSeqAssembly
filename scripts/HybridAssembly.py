@@ -83,9 +83,12 @@ def DenovoControl(args):
 	# If read decontamination necessary, ensure
 	# reference is indexed and class updated
 	# to ensure optional sections run.
-	if 'Contam' in vars(args):
+	if args.Contam != 'False':
 		dnc.BWAIndex(args.Contam)
 		args.decontaminate = True
+	else:
+		args.decontaminate = False
+
 
 	#  Keep track of pipeline stage and working
 	# assembly.
@@ -383,6 +386,7 @@ parser_sub.add_argument('--DepthStep',
 parser_sub.add_argument('--Contam',
 						'-C',
 						help='Path to contamination reference fasta',
+						default='False',
 						type=str)
 
 
