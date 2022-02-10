@@ -540,15 +540,17 @@ def MissassemblyCovCorrection(args):
 
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \
 	samtools sort -@ {ThreadsSubset} -n {args.Prefix}.MissassemblyCheck.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
-	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam -o {args.Prefix}.MissassemblyCheck.coverage'
+	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam > {args.Prefix}.MissassemblyCheck.coverage'
 
-	Run(MCC)
+	if os.path.isfile(f'{args.Prefix}.MissassemblyCheck.coverage')==False:
+		Run(MCC)
 
 	BadRegionsList = []
 	ComboDF = pd.read_csv(f'{args.Prefix}.MissassemblyCheck.coverage',
 						  sep='\t',
 						  header=None)
-	CoverageDF.columns = ['Chromo','Pos','Cov']
+
+	ComboDF.columns = ['Chromo','Pos','Cov']
 
 	# Loop through Chromosome.
 	for C in ComboDF['Chromo'].unique():
