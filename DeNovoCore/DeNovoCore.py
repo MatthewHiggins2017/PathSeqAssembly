@@ -48,12 +48,6 @@ def Run(Command):
 	return RO
 
 
-
-
-
-
-
-
 def nofile(filename):
 	"""
 	Return True if file does not exist
@@ -524,6 +518,10 @@ def CombineFasta(FastaFileList,
 def MissassemblyCovCorrection(args):
 
 
+	# Index Wokring Assembly
+	BWAIndex(args.WorkingAssembly)
+
+
 	# Run Trimming of reads to correct first prior to running
 	# coverage assessment.
 	MissTrim = f'trimmomatic PE -phred33 {args.MisAssembRead1} {args.MisAssembRead2} \
@@ -531,8 +529,9 @@ def MissassemblyCovCorrection(args):
 							 LEADING:3 TRAILING:3 \
 							 SLIDINGWINDOW:4:20 MINLEN:36'
 
-
-	Run(MissTrim)
+	# Only run if filtering has not been done previously
+	if os.path.isfile(f'{args.Prefix}_MA_1P')==False:
+		Run(MissTrim)
 
 	args.MisAssembRead1 = f'{args.Prefix}_MA_1P'
 	args.MisAssembRead2 = f'{args.Prefix}_MA_2P'
@@ -540,7 +539,7 @@ def MissassemblyCovCorrection(args):
 	ThreadsSubset = int(args.Threads/2)
 
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \
-	samtools sort -@ {ThreadsSubset} -n {args.Prefix}.SpadesPrior.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
+	samtools sort -@ {ThreadsSubset} -n {args.Prefix}.MissassemblyCheck.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
 	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam -o {args.Prefix}.MissassemblyCheck.coverage'
 
 	Run(MCC)
