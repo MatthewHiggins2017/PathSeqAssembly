@@ -1,29 +1,3 @@
-'''
-Example Command
-
-HybridAssembly.py all \
--P Po221_Run_1 \
--1 /mnt/storage/matt_h/00_Povale_DB/Fastq/Illumina/Combined_Illumina/Po221_1.final.fastq \
--2 /mnt/storage/matt_h/00_Povale_DB/Fastq/Illumina/Combined_Illumina/Po221_2.final.fastq \
--3 /mnt/storage/matt_h/00_Povale_DB/Fastq/Nanopore/Raw_Data/Combined/Po221_minion_combined.fastq \
--T 30 \
---FlyeOverlap 1000 \
---FlyeMeta \
---RenameJson Po221Renaming.json \
---SpadesMinCov 5 \
---MinDepth 26 \
---MaxDepth 30 \
---DepthStep 2 \
---Contam /mnt/storage/matt_h/00_Povale_DB/References/Old_But_Corrected/GRCh38_latest_genomic.fna \
---GuideRef /mnt/storage/matt_h/00_Povale_DB/References/ChromoOnlyRefs/PocGH01_Genome_and_mito.fasta \
---CircIDs Po221_MIT:Po221_API \
---SSPACEBasicPath ~/00_Denovo_Assembly_Tools/sspace_basic/SSPACE_Basic_v2.0.pl \
---GapFillerPath ~/00_Denovo_Assembly_Tools/GapFiller_v1-11_linux-x86_64/GapFiller.original.pl \
---Score \
---RTIterations 3
-
-'''
-
 import os
 import sys
 import argparse
@@ -59,7 +33,9 @@ def get_step_num(args):
 			 'Extended_GapFiller.gapfilled.final.fa':14,
 			 f'{args.Prefix}_Sealer_scaffold.fa':15,
 			 f'{args.Prefix}_Polish_3/' + \
-			 f'{args.Prefix}_Polish3.fasta':16}
+			 f'{args.Prefix}_Polish3.fasta':16,
+			 f'{args.Prefix}_Misassembly_'+ \
+	 		 'Cov_Filtered.fa':17}
 
 	step = 0
 	WorkingFile = False
@@ -270,7 +246,7 @@ def DenovoControl(args):
 		if args.redo or args.step<17:
 			dnc.MissassemblyCovCorrection(args)
 
-		args.WorkingAssembly = f'{args.WorkingAssembly}_Misassembly_'+ \
+		args.WorkingAssembly = f'{args.Prefix}_Misassembly_'+ \
 								'Cov_Filtered.fa'
 
 
@@ -433,7 +409,7 @@ parser_sub.add_argument('--MisAssembRead2',
 
 parser_sub.add_argument('--MisAssemCovThresh',
 						help='Misassembly Coverage Threshold',
-						type=int,
+						type=float,
 						default=0)
 
 parser_sub.add_argument('--MisAssemWindow',

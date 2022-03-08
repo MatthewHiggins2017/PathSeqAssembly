@@ -521,92 +521,148 @@ def MissassemblyCovCorrection(args):
 	# Index Wokring Assembly
 	BWAIndex(args.WorkingAssembly)
 
-
-	# Run Trimming of reads to correct first prior to running
-	# coverage assessment.
-	MissTrim = f'trimmomatic PE -phred33 {args.MisAssembRead1} {args.MisAssembRead2} \
-							 -threads {args.Threads} -baseout {args.Prefix}_MA \
-							 LEADING:3 TRAILING:3 \
-							 SLIDINGWINDOW:4:20 MINLEN:36'
-
-	# Only run if filtering has not been done previously
-	if os.path.isfile(f'{args.Prefix}_MA_1P')==False:
-		Run(MissTrim)
-
-	args.MisAssembRead1 = f'{args.Prefix}_MA_1P'
-	args.MisAssembRead2 = f'{args.Prefix}_MA_2P'
-
+	# Determine number of threads
 	ThreadsSubset = int(args.Threads/2)
 
+	# Generate coverage files (with samtools filter bwa sets multiple mapped
+	# reads as having q = 0 so can use q=1 threshold as filter.)
+	
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \
-	samtools sort -@ {ThreadsSubset} -n {args.Prefix}.MissassemblyCheck.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
-	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam > {args.Prefix}.MissassemblyCheck.coverage'
+	samtools sort -@ {ThreadsSubset} {args.Prefix}.MissassemblyCheck.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
+	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam > {args.Prefix}.MissassemblyCheck.coverage ; \
+	samtools view -F 2048 -b -q 1 -@ 18 {args.Prefix}.MissassemblyCheck.sorted.bam  -o {args.Prefix}.MissassemblyCheck_UniqMap.sorted.bam  ; \
+	samtools depth -a {args.Prefix}.MissassemblyCheck_UniqMap.sorted.bam  > {args.Prefix}.MissassemblyCheck_UniqMap.coverage ; \
+	'
 
-	if os.path.isfile(f'{args.Prefix}.MissassemblyCheck.coverage')==False:
-		Run(MCC)
+	Run(MCC)
 
+
+	# Loop through coverage files
 	BadRegionsList = []
-	ComboDF = pd.read_csv(f'{args.Prefix}.MissassemblyCheck.coverage',
-						  sep='\t',
-						  header=None)
 
-	ComboDF.columns = ['Chromo','Pos','Cov']
-
-	# Loop through Chromosome.
-	for C in ComboDF['Chromo'].unique():
-
-		Tstart = 0
-		Tend = 0
-
-		# subset and extract all mean coverage metrics per 50bp
-		SubCombo = ComboDF[ComboDF['Chromo']==C]
-		SubMean = ComboDF['Cov'].tolist()
-		MaxChromoSize = len(SubCombo)
+	# Chromosomes to exclude based on total coverage to skip.
+	FullChromoToExclude = []
 
 
-		for i in range(MaxChromoSize-args.MisAssemWindow):
-			ROI = SubMean[i:i+args.MisAssemWindow]
-			SMC = np.mean(ROI)
-			# Check if region is below the limit.
-			if SMC < args.MisAssemCovThresh:
+	# Boolean to define what coverage file to use
+	# i.e. for contigs only to switch too
 
-				# Calculate Start and End Site
-				PS = i
-				PE = i+WindowMultipler
+	ChromoOnlyBoolean = True
 
-				# If first region in loop
-				if Tstart == 0:
-					Tstart = PS
-					Tend = PE
 
-				# If not first in loop but overlapping with existing
-				# region then update TEND the end site.
-				elif (PS > Tstart and PS < Tend):
-					Tend = PE
+	for CF in [f'{args.Prefix}.MissassemblyCheck.coverage',
+			   f'{args.Prefix}.MissassemblyCheck_UniqMap.coverage']:
 
-				# If not overlapping then add existing TStart TEnd
-				# to dataframe and reset Tstart and TEnd
-				elif (Tstart != 0 and Tend != 0):
 
-					BadRegionsList.append({'Chromo':C,
-											'Start':Tstart,
-											'End':Tend})
+		ComboDF = pd.read_csv(CF,
+						  	  sep='\t',
+						  	  header=None)
 
-					Tstart = PS
-					Tend = PE
+		ComboDF.columns = ['Chromo','Pos','Cov']
 
-		# Once I have looped through all windows add existing TStart and TEnd to
-		# dataframe this may create duplicate entry but that can be correct for.
-		if (Tstart != 0 and Tend != 0):
 
-			BadRegionsList.append({'Chromo':C,
-									'Start':Tstart,
-									'End':Tend})
+		# Filter based on chromo boolean = Later tidy this up not to
+		# rely on scaffold name tag.
+		if ChromoOnlyBoolean == True:
+			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('scaffold')==False]
+			ChromoOnlyBoolean = False
+		else:
+			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('scaffold')]
+
+
+		# Check if full chromosome is below the coverage limit.
+		# if coverage threshold is set as 0 then adapt and set it
+		# too 1.
+		if args.MisAssemCovThresh == 0:
+			FCO = 1
+		else:
+			FCO = args.MisAssemCovThresh
+
+
+
+		# Loop through Chromosome.
+		for C in ComboDF['Chromo'].unique():
+
+			# subset and extract all mean coverage metrics per 50bp
+			SubCombo = ComboDF[ComboDF['Chromo']==C]
+			SubMean = SubCombo['Cov'].tolist()
+			MaxChromoSize = len(SubCombo)
+
+
+			# Check if full chromosome is below the limit and if so add to list
+			if SubCombo['Cov'].mean() <= FCO:
+				FullChromoToExclude.append(C)
+
+
+			# Complete assessment along chromosome according to user defined
+			# windows
+			else:
+
+				# If no coverage in this place
+				if os.path.isfile(f'{args.Prefix}_Bad_Region_Coverage.csv')==False:
+
+					# Reset to 0 for every new chromosome.
+					Tstart = 0
+					Tend = 0
+
+					# Loop through all positions in the chromosomes up to window
+					# defined limit.
+					for i in range(MaxChromoSize-args.MisAssemWindow):
+
+						ROI = SubMean[i:i+args.MisAssemWindow]
+						SMC = np.mean(ROI)
+
+						# Check if region is below the limit.
+						if SMC <= args.MisAssemCovThresh:
+
+							# Calculate Start and End Site
+							PS = i
+							PE = i+args.MisAssemWindow
+
+							# If first region in loop
+							if Tstart == 0:
+								Tstart = PS
+								Tend = PE
+
+							# If not first in loop but overlapping with existing
+							# region then update TEND the end site.
+							elif (PS > Tstart and PS < Tend):
+								Tend = PE
+
+							# If not overlapping then add existing TStart TEnd
+							# to dataframe and reset Tstart and TEnd
+							elif (Tstart != 0 and Tend != 0):
+
+								BadRegionsList.append({'Chromo':C,
+														'Start':Tstart,
+														'End':Tend})
+
+								Tstart = PS
+								Tend = PE
+
+					# Once I have looped through all windows add existing TStart and TEnd to
+					# dataframe this may create duplicate entry but that can be correct for.
+					if (Tstart != 0 and Tend != 0):
+
+						BadRegionsList.append({'Chromo':C,
+												'Start':Tstart,
+												'End':Tend})
+
+					# Reset Tstart and Tend as 0 for next iteration
+					Tstart=0
+					Tend=0
+
+
 
 	# Convert into a DataFrame
-	BadRegionDF = pd.DataFrame(BadRegionsList)
-	BadRegionDF = BadRegionDF.drop_duplicates()
-	BadRegionDF.to_csv(f'{args.Prefix}_Bad_Region_Coverage.csv',index=None)
+	# or read in existing dataframe.
+	if os.path.isfile(f'{args.Prefix}_Bad_Region_Coverage.csv')==False:
+		BadRegionDF = pd.DataFrame(BadRegionsList)
+		BadRegionDF = BadRegionDF.drop_duplicates()
+		BadRegionDF.to_csv(f'{args.Prefix}_Bad_Region_Coverage.csv',index=None)
+	else:
+		BadRegionDF = pd.read_csv(f'{args.Prefix}_Bad_Region_Coverage.csv')
+
 
 
 	# Load in reference file as dictionary
@@ -616,8 +672,8 @@ def MissassemblyCovCorrection(args):
 	LenDict={}
 	for a,b in RefDict.items():
 		LenDict[a]=len(b)
-	CutDF = BadRegionDF.sort_values(by=['Chromo','Start'])
 
+	CutDF = BadRegionDF.sort_values(by=['Chromo','Start'])
 
 	# Loop through regions which need to be removed.
 	for SubChromo in CutDF['Chromo'].unique().tolist():
@@ -645,12 +701,21 @@ def MissassemblyCovCorrection(args):
 		NewChromo = NewChromo.rstrip('N').lstrip('N')
 		RefDict[SubChromo]=NewChromo
 
-
-	out = open(f'{args.WorkingAssembly}_Misassembly_Cov_Filtered.fa','w')
+	# Write to file but exclude the full chromosomes necessary which do not
+	# pass the full-chromosome coverage assessment.
+	MisAssemOutID = f'{args.Prefix}_Misassembly_Cov_Filtered.fa'
+	MisAssemOut = open(MisAssemOutID,'w')
 	for a,b in RefDict.items():
-		out.write('>{}\n{}\n'.format(a,b))
-	out.close()
+		if a not in FullChromoToExclude:
+			MisAssemOut.write(f'>{a}\n{b}\n')
+	MisAssemOut.close()
 
+
+	# Write what chromosomes can be excluded
+	DroppedChromoFile = open(f'{args.Prefix}_Chromo_Dropped.txt','w')
+	for DC in FullChromoToExclude:
+		DroppedChromoFile.write(f'{DC}\n')
+	DroppedChromoFile.close()
 
 	return True
 
@@ -710,7 +775,6 @@ def FlyeOptimisation(args):
 	# Identify best Flye scaffolding
 	MetricDf = pd.DataFrame()
 	for FlyeFile in glob.glob(f'*_{args.Prefix}_Flye'):
-		print(FlyeFile)
 		# Dictionary to store all metric values
 		FFMD = {}
 

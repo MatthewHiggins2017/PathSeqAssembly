@@ -23,10 +23,10 @@ def FastaToDict(InputFile):
 
 def SplitAssembly(self):
 	# Split assembly at each gap point where
-	# 3 N nucleotides are present.
+	# 10 N nucleotides are present.
 	ContigsList = []
 	for Id, Seq in self.AssemblyDict.items():
-		ContigsList += Seq.upper().split('NNN')
+		ContigsList += Seq.upper().split('N'*10)
 	ContigsList = [C for C in ContigsList if (C.count('N') != len(C) and len(C)>0)]
 	return ContigsList
 
