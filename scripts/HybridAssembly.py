@@ -34,8 +34,9 @@ def get_step_num(args):
 			 f'{args.Prefix}_Sealer_scaffold.fa':15,
 			 f'{args.Prefix}_Polish_3/' + \
 			 f'{args.Prefix}_Polish3.fasta':16,
+			 f'{args.Prefix}_BUSCO_Corrected_Assembly.fa':17,
 			 f'{args.Prefix}_Misassembly_'+ \
-	 		 'Cov_Filtered.fa':17}
+	 		 'Cov_Filtered.fa':18}
 
 	step = 0
 	WorkingFile = False
@@ -240,6 +241,15 @@ def DenovoControl(args):
 							f'{args.Prefix}_Polish{Iteration}.fasta'
 
 
+	################ NEW NEW NEW ################
+	# Busco Based Missassembly Correction.
+	if args.redo or args.step<17:
+		dnc.MisassemblyBuscoCorrection(args)
+
+	args.WorkingAssembly = f'{args.Prefix}_BUSCO_Corrected_Assembly.fa'
+	################ NEW NEW NEW ################
+
+
 	# Missassembly Correction [OPTIONAL]
 	if args.MisAssembRead1 != 'False':
 		# Coverage based correction
@@ -421,6 +431,36 @@ parser_sub.add_argument('--MinContigLen',
 						help='Minimum contig length to keep post scaffolding',
 						type=int,
 						default=1000)
+
+
+
+parser_sub.add_argument('--BUSCOLineage',
+						help='Minimum contig length to keep post scaffolding',
+						type=str,
+						default='auto_lineage')
+
+
+parser_sub.add_argument('--BUSCOWeight1',
+						help='BUSCO Weight1 for optimisation algorithm',
+						type=int,
+						default=1)
+
+
+parser_sub.add_argument('--BUSCOWeight2',
+						help='BUSCO Weight1 for optimisation algorithm',
+						type=int,
+						default=1)
+
+parser_sub.add_argument('--BUSCOWeight3',
+						help='BUSCO Weight1 for optimisation algorithm',
+						type=int,
+						default=1)
+
+parser_sub.add_argument('--BUSCOWeight4',
+						help='BUSCO Weight1 for optimisation algorithm',
+						type=int,
+						default=1)
+
 
 parser_sub.set_defaults(func=DenovoControl)
 

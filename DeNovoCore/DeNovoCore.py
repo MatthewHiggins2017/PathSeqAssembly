@@ -18,9 +18,9 @@ def CreateLoggingFiles(args):
 	global ErrorLogFile
 	global StdOutLogFile
 
-	CommandLogFile = open(f'{args.Prefix}_Command_Log.txt','w')
-	ErrorLogFile = open(f'{args.Prefix}_Error_Log.txt','w')
-	StdOutLogFile = open(f'{args.Prefix}_StdOut_Log.txt','w')
+	CommandLogFile = open(f'{args.Prefix}_Command_Log.txt','a')
+	ErrorLogFile = open(f'{args.Prefix}_Error_Log.txt','a')
+	StdOutLogFile = open(f'{args.Prefix}_StdOut_Log.txt','a')
 
 
 
@@ -312,7 +312,8 @@ def RagTag(args):
 		args.WorkingAssembly,
 		args.Prefix,
 		args.Threads,
-		False)
+		False,
+		args)
 
 	# Run Parameter Optimisation
 	RagTagOptimise = minimize(RagTagOptimisation,
@@ -331,7 +332,8 @@ def RagTag(args):
 				   		args.WorkingAssembly,
 				   		args.Prefix,
 				   		args.Threads,
-				   		True)
+				   		True,
+						args)
 
 
 
@@ -341,7 +343,8 @@ def RagTagOptimisation(Param,
 					   ContigsFiles,
 					   OutputPrefix,
 					   Threads,
-					   Final):
+					   Final,
+					   args):
 
 	"""
 	Ragtag function used in Optimisation
@@ -362,13 +365,30 @@ def RagTagOptimisation(Param,
 
 	Run(RTComm)
 
+
+	# Run BUSCO Analysis
+	BUSCOScore = BUSCOAssessment(f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/ragtag.scaffold.fasta',
+								 f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/{OutputPrefix}',
+								 args,
+								 True)
+
+
+	# Write BUSCO TO File
+	BuscoScoreFile = open(f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/Busco_Score.txt','w')
+	BuscoScoreFile.write(str(BuscoScore))
+	BuscoScoreFile.close()
+
+
+	'''
 	# Extract Unplaced BP count
 	RagStat = pd.read_csv(f'{OutputPrefix}_RagTag_Optimisation/'+
 						  f'{RC}_RagTag_Fixed_Gap/ragtag.scaffold.stats',
 						  sep='\t')
 
 	UnplacedBp = RagStat.loc[0,'unplaced_bp']
-	return UnplacedBp
+	'''
+
+	return BUSCOScore
 
 
 
@@ -526,7 +546,7 @@ def MissassemblyCovCorrection(args):
 
 	# Generate coverage files (with samtools filter bwa sets multiple mapped
 	# reads as having q = 0 so can use q=1 threshold as filter.)
-	
+
 	MCC = f'bwa mem -t {ThreadsSubset} {args.WorkingAssembly} {args.MisAssembRead1} {args.MisAssembRead2} | samtools view -@ {ThreadsSubset} -b -o {args.Prefix}.MissassemblyCheck.bam ; \
 	samtools sort -@ {ThreadsSubset} {args.Prefix}.MissassemblyCheck.bam -o {args.Prefix}.MissassemblyCheck.sorted.bam ; \
 	samtools depth -a {args.Prefix}.MissassemblyCheck.sorted.bam > {args.Prefix}.MissassemblyCheck.coverage ; \
@@ -759,22 +779,24 @@ def FlyeOptimisation(args):
 	p0=(args.Threads,
 		args.Prefix,
 		args.LongReads,
-		False)
+		False,
+		args)
 
 
 	# Run Parameter Optimisation
 	FlyeOptAss = minimize(FlyeAssembly,
-							  x,
-							  args=(p0),
-							  method='Nelder-Mead',
-							  bounds=[(1000,np.Inf),(0,2)],
-							  options={'maxiter':int(args.FlyeIterations)})
+						  x,
+						  args=(p0),
+						  method='Nelder-Mead',
+						  bounds=[(1000,np.Inf),(0,2)],
+						  options={'maxiter':int(args.FlyeIterations)})
 
 
 
 	# Identify best Flye scaffolding
 	MetricDf = pd.DataFrame()
 	for FlyeFile in glob.glob(f'*_{args.Prefix}_Flye'):
+
 		# Dictionary to store all metric values
 		FFMD = {}
 
@@ -796,11 +818,21 @@ def FlyeOptimisation(args):
 				if KW in TL:
 					FFMD[KW.replace(':','')] = int(TL.split(':')[-1].replace(' ',''))
 
+
+
+		# Extract BUSCO Score and  add to dictionary.
+		BSF = open(f'{FlyeFile}/Busco_Score.txt','r')
+		BSFOutStr = ''
+		for B in BSF.readlines():
+			BSFOutStr+=B
+		FFMD['Busco Score'] = float(BSFOutStr.replace('\n',''))
+
 		MetricDf = MetricDf.append(FFMD,ignore_index=True)
 
 
-	# Sort Metrics DF
-	MetricDf = MetricDf.sort_values(by='Total length',ascending=False)
+	# Sort Metrics DF (based on Busco score and make so smallest is at the
+	# start)
+	MetricDf = MetricDf.sort_values(by='Busco Score',ascending=True)
 	MetricDf = MetricDf.reset_index(drop=True)
 	MetricDf.to_csv(f'{args.Prefix}_Flye_Optimisation_Metrics.csv',index=None)
 
@@ -813,12 +845,12 @@ def FlyeOptimisation(args):
 
 
 
-
 def FlyeAssembly(OptimisationCombo,
 				 Threads,
 				 Prefix,
 				 LongReads,
-				 Final):
+				 Final,
+				 args):
 	"""
 	Long-Read Flye Denovo Assembly
 	"""
@@ -845,15 +877,35 @@ def FlyeAssembly(OptimisationCombo,
 
 	Run(FlyeC)
 
+	# Definte Flye Fasta Path
+	FlyeOutputFasta = f'{RC}_{Prefix}_Flye/assembly.fasta'
+
+	# Run BUSCO Command
+	BuscoScore = BUSCOAssessment(FlyeOutputFasta,
+								f'{RC}_{Prefix}_Flye/{Prefix}',
+								 args)
+
+	# Write BUSCO TO File
+	FlyeBuscoScoreFile = open(f'{RC}_{Prefix}_Flye/Busco_Score.txt','w')
+	FlyeBuscoScoreFile.write(str(BuscoScore))
+	FlyeBuscoScoreFile.close()
+
+
+	'''
+	#####################################
+	OLD Optimisation Delete When Ready
+	#####################################
 	FlyeLog = open(f'{RC}_{Prefix}_Flye/flye.log','r')
 	for l in FlyeLog.readlines():
 		if 'Total length' in l:
 			TL = int(l.split(':')[-1].strip().replace(' ',''))
 
-
 	FlyeScore = (10**15)-TL
+	#####################################
+	'''
 
-	return FlyeScore
+	return BuscoScore
+
 
 
 
@@ -873,3 +925,155 @@ def RemoveSmallContigs(args):
 	for a,b in NWA.items():
 		Out.write(f'>{a}\n{b}\n')
 	Out.close()
+
+
+
+
+def BUSCOAssessment(InputFasta,
+					OutputPrefix,
+					args,
+					CoreGenomeOnly=False):
+
+	BUSCO_Command = f'busco -i {InputFasta} -o {OutputPrefix}_Busco \
+	 				  -m genome -l {args.BUSCOLineage} -c {args.Threads}'
+
+	Run(BUSCO_Command)
+
+	BuscoTable = pd.read_csv(f'{OutputPrefix}_Busco/run_{args.BUSCOLineage}/full_table.tsv',
+							 sep='\t',
+							 comment='#',
+							 names=range(10))
+
+	# If core genome is true remove any tags with scaffold in it. (Future
+	# may change this to Unplaced but would need to modify post RagTag naming
+	# etc do this later.)
+	if CoreGenomeOnly == True:
+		BuscoTable = BuscoTable[BuscoTable[2].str.contains('Scaffold')==False]
+
+
+	# Extract BUSCO table Metrics
+	BUSCOOutput = BuscoTable[1].value_counts().to_dict()
+
+	# Determine total number
+	with open(f'{OutputPrefix}_Busco/run_{args.BUSCOLineage}/short_summary.json') as json_file:
+		SSJson = json.load(json_file)
+		TotalBuscos = int(SSJson['dataset_total_buscos'])
+
+
+	# Determine Score
+	BUSCOOptimisationScore = ((TotalBuscos-BUSCOOutput['Complete'])*args.BUSCOWeight1) + \
+							 (BUSCOOutput['Duplicated'] * args.BUSCOWeight2) + \
+							 (BUSCOOutput['Missing'] * args.BUSCOWeight3) + \
+							 (BUSCOOutput['Fragmented'] * args.BUSCOWeight4)
+
+
+	return BUSCOOptimisationScore
+
+
+
+def MisassemblyBuscoCorrection(args):
+
+	# Run Standard BUSCO assessment command on WorkingAssembly.
+	BUSCOAssessment(args.WorkingAssembly,
+					f'{arg.Prefix}_BUSCO_Misassembly/{arg.Prefix}',
+					args)
+
+	# Analyses BuscoTable and subset so only contains Scaffold
+	BuscoTable = pd.read_csv(f'{arg.Prefix}_BUSCO_Misassembly/{arg.Prefix}_Busco/run_{args.BUSCOLineage}/full_table.tsv',
+							 sep='\t',
+							 comment='#',
+							 names=range(10))
+
+
+
+	# Subset table to only contain duplicates
+	DuplicateTable = BuscoTable[BuscoTable[1]=='Duplicated']
+
+	# Store all sites which need to be droped
+	DropTable = pd.DataFrame()
+
+	# Loop through unique BIDs
+	for BID in DuplicateTable[0].unique():
+
+		# Subset based on BID
+		TempSub = DuplicateTable[DuplicateTable[0]==BID]
+
+		# 1) If duplicates are both in core genome then should keep both.
+		# 2) If duplicates are split between core genome and unscaffolded, then
+		# delete the scaffolded ones.
+		# 3) If duplicates both in scaffolded keep the first occurance and remove
+		# the rest.
+
+		# Add column identifying if scaffold genome or not
+		TempSub[10] = (TempSub[2].str.contains('Scaff')==False)
+
+		# Check if core genome duplicate
+		DuplicateIDs = [i for i in TempSub.index.tolist() if i not in TempSub[[0,10]].drop_duplicates().index.tolist()]
+
+		# Subset regions to drop and make sure that the none are in the core genome.
+		# as dont want to remove these duplicates.
+		PreDrop = TempSub.loc[DuplicateIDs,:]
+		PreDrop = TempSub[TempSub[10]!=True]
+
+		DropTable = pd.concat([DropTable,PreDrop])
+
+
+
+	WorkingAssemblyFasta = FastaToDict(args.WorkingAssembly)
+
+
+	# Loop through Drop table column 2 and use this to modify the fasta file.
+	# 2 = chromosome, 3 = start, 4 = end (I assume starts from 1 but need to
+	# check this)
+
+	SplitContigsDict = {}
+
+
+	for UC in DropTable[2].unique():
+
+		# Subset and sort according to start so in order.
+		SubDrop = DropTable[DropTable[2]==UC]
+		SubDrop = SubDrop.sort_values(by=3)
+
+		# Minus 1 from start and end site to 0-indexed for python instead
+		# of 1-indexed.
+		df[3] = df[3]-1
+		df[4] = df[4]-1
+
+
+		# Split contigs around BUSCO duplicate sites.
+		SplitsContigsFasta = []
+		FirstSub = True
+		for i in range(len(SubDrop)):
+			if FirstSub == True:
+				FirstSub = False
+				SplitsContigsFasta.append(WorkingAssemblyFasta[UC][:SubDrop.iloc[i,2]])
+			else:
+				SplitsContigsFasta.append(WorkingAssemblyFasta[UC][SubDrop.iloc[i,2]:SubDrop.iloc[i-1,3]])
+
+		# Add in end.
+		SplitsContigsFasta.append(WorkingAssemblyFasta[UC][SubDrop.iloc[-1,3]:])
+
+
+		# Filter SplitsContigsFasta if length is greater than filter and add
+		# to SplitContigsDict with unique ID.
+		TCCID = 1
+		SplitContigMinLen = 200
+		for f in SplitsContigsFasta:
+			if len(f)>= SplitContigMinLen:
+				SplitContigsDict[UC+f'_Split_{str(TCCID)}'] = f
+				TCCID+=1
+
+
+	# Filting existing working assemby for unplaced contigs which have undergone
+	# spliting and then add in new split contigs.
+	TempFullDict = {a:b for a,b in WorkingAssemblyFasta.items() if a not in DropTable[2].unique()}
+	NewWorkingAssembly = {**TempFullDict,**SplitContigsDict}
+
+	# Write new Working Assembly
+	OutWorking = open(f'{args.Prefix}_BUSCO_Corrected_Assembly.fa','w')
+	for a,b in NewWorkingAssembly.items():
+		OutWorking.write(f'>{a}\n{b}\n')
+	OutWorking.close()
+
+	return True
