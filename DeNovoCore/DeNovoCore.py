@@ -338,6 +338,8 @@ def RagTag(args):
 
 
 
+
+
 def RagTagOptimisation(Param,
 					   RefScaffold,
 					   ContigsFiles,
@@ -366,6 +368,12 @@ def RagTagOptimisation(Param,
 	Run(RTComm)
 
 
+
+	# Run contig renaming, this will add Unplaced
+	ContigRenaming(args,f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/ragtag.scaffold.fasta')
+
+
+
 	# Run BUSCO Analysis
 	BUSCOScore = BUSCOAssessment(f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/ragtag.scaffold.fasta',
 								 f'{OutputPrefix}_RagTag_Optimisation/{RC}_RagTag_Fixed_Gap/{OutputPrefix}',
@@ -392,31 +400,39 @@ def RagTagOptimisation(Param,
 
 
 
-def ContigRenaming(args):
+def ContigRenaming(args,FastaPath=False):
 	"""
 	Replace Fasta IDs
 	"""
+
+	# Load in Working Assembly to Dict and create file.
+	if FastaPath==False:
+		WD = FastaToDict(args.WorkingAssembly)
+		OF = open(f'{args.Prefix}_Renamed.fasta','w')
+	else:
+		WD = FastaToDict(FastaPath)
+		OF = open(FastaPath,'w')
+
 
 	# Load in Json File, creating dictionary with replacement IDs
 	with open(args.RenameJson) as json_file:
 		RD = json.load(json_file)
 		ReplaceD = RD['Replacements']
 
-	# Load in Working Assembly to Dict
-	WD = FastaToDict(args.WorkingAssembly)
 
 	# Clean working assembly (removing _RagTags suffix)
 	# and then replace with corrected IDs and write to
 	# a cleaned fasta file
-	OF = open(f'{args.Prefix}_Renamed.fasta','w')
 	for I,S in WD.items():
 		III = I.replace('_RagTag','')
 		if III in list(ReplaceD.keys()):
 			HO = ReplaceD[III]
 		else:
-			HO = III
+			HO = 'Unplaced_'+III
 
 		OF.write(f'>{HO}\n{S}\n')
+
+	OF.close()
 
 
 def Circularisation(args):
@@ -584,10 +600,10 @@ def MissassemblyCovCorrection(args):
 		# Filter based on chromo boolean = Later tidy this up not to
 		# rely on scaffold name tag.
 		if ChromoOnlyBoolean == True:
-			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('scaffold')==False]
+			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('Unplaced')==False]
 			ChromoOnlyBoolean = False
 		else:
-			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('scaffold')]
+			ComboDF = ComboDF[ComboDF['Chromo'].str.contains('Unplaced')]
 
 
 		# Check if full chromosome is below the coverage limit.
@@ -597,7 +613,6 @@ def MissassemblyCovCorrection(args):
 			FCO = 1
 		else:
 			FCO = args.MisAssemCovThresh
-
 
 
 		# Loop through Chromosome.
@@ -695,37 +710,80 @@ def MissassemblyCovCorrection(args):
 
 	CutDF = BadRegionDF.sort_values(by=['Chromo','Start'])
 
+
+	SplitUnplacedContigsDict = {}
+	TOBEREMOVED = []
+
 	# Loop through regions which need to be removed.
 	for SubChromo in CutDF['Chromo'].unique().tolist():
 
 		Sub = CutDF[CutDF['Chromo']==SubChromo]
 		FinalEnd = len(RefDict[SubChromo])
 
-		# Generating new chromsome
-		NewChromo = ''
+		# Check if in nuclear genome as if so will simply look to replace
+		# gaps with NNNN values.
+		if 'Unplaced' not in SubChromo:
 
-		POI = list(zip(Sub['Start'].tolist(),
-						Sub['End'].tolist()))
+			# Generating new chromsome
+			NewChromo = ''
 
-		TempStart=0
-		for I in POI:
-			if TempStart == 0:
-				NewChromo+=RefDict[SubChromo][:I[0]-1]
-			else:
-				NewChromo+=RefDict[SubChromo][TempStart:I[0]-1]
+			POI = list(zip(Sub['Start'].tolist(),
+							Sub['End'].tolist()))
 
-			NewChromo+='N'*100
-			TempStart = I[1]
+			TempStart=0
+			for I in POI:
+				if TempStart == 0:
+					NewChromo+=RefDict[SubChromo][:I[0]-1]
+				else:
+					NewChromo+=RefDict[SubChromo][TempStart:I[0]-1]
 
-		NewChromo+=RefDict[SubChromo][TempStart:FinalEnd]
-		NewChromo = NewChromo.rstrip('N').lstrip('N')
-		RefDict[SubChromo]=NewChromo
+				NewChromo+='N'*100
+				TempStart = I[1]
+
+			NewChromo+=RefDict[SubChromo][TempStart:FinalEnd]
+			NewChromo = NewChromo.rstrip('N').lstrip('N')
+			RefDict[SubChromo]=NewChromo
+
+		# If Bad regions in unplaced contigs then need to split and add to
+		# the SplitUnplacedContigsDict dictionary.
+		else:
+
+			TOBEREMOVED.append(SubChromo)
+
+
+			# Loop over positions in Sub DF and split iplaced contig accordingly.
+			SplitsContigsFasta = []
+			FirstSub = True
+			for i in range(len(Sub)):
+				if FirstSub == True:
+					FirstSub = False
+					SplitsContigsFasta.append(RefDict[SubChromo][:Sub.iloc[i,1]])
+				else:
+					SplitsContigsFasta.append(RefDict[SubChromo][Sub.iloc[i,1]:Sub.iloc[i-1,2]])
+
+			# Add in end.
+			SplitsContigsFasta.append(WorkingAssemblyFasta[UC][SubDrop.iloc[-1,3]:])
+
+
+			# Filter SplitsContigsFasta if length is greater than filter and add
+			# to SplitContigsDict with unique ID.
+			TCCID = 1
+			SplitContigMinLen = 200
+			for f in SplitsContigsFasta:
+				if len(f)>= SplitContigMinLen:
+					SplitUnplacedContigsDict[SubChromo+f'_Split_{str(TCCID)}'] = f
+					TCCID+=1
+
+
+	# Update dictionary to remove
+	TCD = {a,b for a,b in RefDict.items() if a not in TOBEREMOVED}
+	UpdatedRefDict = {**TCD,**SplitUnplacedContigsDict}
 
 	# Write to file but exclude the full chromosomes necessary which do not
 	# pass the full-chromosome coverage assessment.
 	MisAssemOutID = f'{args.Prefix}_Misassembly_Cov_Filtered.fa'
 	MisAssemOut = open(MisAssemOutID,'w')
-	for a,b in RefDict.items():
+	for a,b in UpdatedRefDict.items():
 		if a not in FullChromoToExclude:
 			MisAssemOut.write(f'>{a}\n{b}\n')
 	MisAssemOut.close()
@@ -948,7 +1006,7 @@ def BUSCOAssessment(InputFasta,
 	# may change this to Unplaced but would need to modify post RagTag naming
 	# etc do this later.)
 	if CoreGenomeOnly == True:
-		BuscoTable = BuscoTable[BuscoTable[2].str.contains('Scaffold')==False]
+		BuscoTable = BuscoTable[BuscoTable[2].str.contains('Unplaced')==False]
 
 
 	# Extract BUSCO table Metrics
@@ -1005,7 +1063,7 @@ def MisassemblyBuscoCorrection(args):
 		# the rest.
 
 		# Add column identifying if scaffold genome or not
-		TempSub[10] = (TempSub[2].str.contains('Scaff')==False)
+		TempSub[10] = (TempSub[2].str.contains('Unplaced')==False)
 
 		# Check if core genome duplicate
 		DuplicateIDs = [i for i in TempSub.index.tolist() if i not in TempSub[[0,10]].drop_duplicates().index.tolist()]

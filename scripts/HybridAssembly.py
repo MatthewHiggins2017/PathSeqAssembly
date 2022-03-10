@@ -31,7 +31,6 @@ def get_step_num(args):
 			 f'{args.Prefix}_{args.MinDepth}_Extended_'+ \
 			 f'GapFiller/{args.Prefix}_{args.MinDepth}_' + \
 			 'Extended_GapFiller.gapfilled.final.fa':14,
-			 f'{args.Prefix}_Sealer_scaffold.fa':15,
 			 f'{args.Prefix}_Polish_3/' + \
 			 f'{args.Prefix}_Polish3.fasta':16,
 			 f'{args.Prefix}_BUSCO_Corrected_Assembly.fa':17,
@@ -225,12 +224,13 @@ def DenovoControl(args):
 						   'Extended_GapFiller.gapfilled.final.fa'
 
 
+	'''
 	# Abyss Sealer
 	if args.redo or args.step<15:
 		dnc.AbyssSealer(args)
 
 	args.WorkingAssembly = f'{args.Prefix}_Sealer_scaffold.fa'
-
+	'''
 
 	# Pilon Polishing
 	Iteration=3
